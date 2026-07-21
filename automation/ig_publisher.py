@@ -102,12 +102,15 @@ def save_state(s):
 
 def publish_ig(ig_id, job):
     """IG-Reel: Container erstellen, auf FINISHED warten, veröffentlichen."""
-    cre = api(f"{ig_id}/media", method="POST", data={
+    data = {
         "media_type": "REELS",
         "video_url": job["url"],
         "caption": job["caption"],
         "share_to_feed": "true",
-    })
+    }
+    if job.get("cover"):
+        data["cover_url"] = job["cover"]
+    cre = api(f"{ig_id}/media", method="POST", data=data)
     cid = cre["id"]
     for _ in range(60):
         st = api(cid, {"fields": "status_code,status"})
