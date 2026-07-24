@@ -148,10 +148,12 @@ def publish_fb_reel(page_id, page_token, video_url, caption):
     return vid
 
 
-def run(n, dry, accts):
+def run(n, dry, accts, only=None):
     state = load_state()
     failures = []
     for handle, jobs_path in ACCOUNTS.items():
+        if only and handle != only:
+            continue
         jobs = json.load(open(jobs_path))
         done = set(state.get(handle, []))
         due = [j for j in jobs if j["datei"] not in done][:n]
@@ -195,14 +197,17 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="nur zeigen, nichts posten")
     ap.add_argument("--run", action="store_true", help="wirklich posten (IG + FB)")
     ap.add_argument("--n", type=int, default=1, help="wie viele je Konto (Default 1)")
+    ap.add_argument("--only", choices=sorted(ACCOUNTS), default=None,
+                    help="nur dieses Konto bedienen — zum Angleichen, wenn ein "
+                         "Konto nach einem Teilausfall hinterherhinkt")
     a = ap.parse_args()
     if a.discover:
         discover(); return
     accts = accounts_map()
     if a.run:
-        run(a.n, dry=False, accts=accts)
+        run(a.n, dry=False, accts=accts, only=a.only)
     else:
-        run(a.n, dry=True, accts=accts)
+        run(a.n, dry=True, accts=accts, only=a.only)
         print("\n(Nur Vorschau. Für echtes Posten: --run)")
 
 
