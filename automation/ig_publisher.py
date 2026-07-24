@@ -49,6 +49,12 @@ def get_token():
              "oder Token in ~/.gptagency_meta_token schreiben.")
 
 
+class ApiError(Exception):
+    """Graph-API-Fehler. Bewusst eine Exception (kein sys.exit): nur so greift
+    der best-effort-Guard um publish_fb_reel — SystemExit erbt von
+    BaseException und rutscht durch jedes `except Exception` hindurch."""
+
+
 def api(path, params=None, method="GET", data=None, token=None):
     tok = token or get_token()
     params = dict(params or {})
@@ -61,7 +67,7 @@ def api(path, params=None, method="GET", data=None, token=None):
             return json.loads(r.read().decode())
     except urllib.error.HTTPError as e:
         detail = e.read().decode()
-        sys.exit(f"API-FEHLER {e.code} bei {method} {path}:\n{detail}")
+        raise ApiError(f"API-FEHLER {e.code} bei {method} {path}:\n{detail}")
 
 
 def accounts_map():
@@ -117,10 +123,10 @@ def publish_ig(ig_id, job):
         if st.get("status_code") == "FINISHED":
             break
         if st.get("status_code") == "ERROR":
-            sys.exit(f"IG-Container-Fehler bei {job['datei']}: {st.get('status')}")
+            raise ApiError(f"IG-Container-Fehler bei {job['datei']}: {st.get('status')}")
         time.sleep(5)
     else:
-        sys.exit(f"IG-Timeout beim Transcoding von {job['datei']}")
+        raise ApiError(f"IG-Timeout beim Transcoding von {job['datei']}")
     pub = api(f"{ig_id}/media_publish", method="POST", data={"creation_id": cid})
     return pub["id"]
 
@@ -144,6 +150,7 @@ def publish_fb_reel(page_id, page_token, video_url, caption):
 
 def run(n, dry, accts):
     state = load_state()
+    failures = []
     for handle, jobs_path in ACCOUNTS.items():
         jobs = json.load(open(jobs_path))
         done = set(state.get(handle, []))
@@ -159,7 +166,15 @@ def run(n, dry, accts):
             if dry:
                 print(f"[DRY] @{handle}  {j['datei']}  -> IG + FB ({info['page_name']})")
                 continue
-            mid = publish_ig(info["ig_id"], j)
+            try:
+                mid = publish_ig(info["ig_id"], j)
+            except Exception as e:
+                # IG ist maßgeblich, aber nur für DIESES Konto: das Video bleibt
+                # unverbucht und ist beim nächsten Lauf wieder dran. Das jeweils
+                # andere Konto darf davon nicht mit ausfallen.
+                print(f"[FEHLER-IG] @{handle}  {j['datei']}: {e}")
+                failures.append(handle)
+                break
             print(f"[OK-IG]  @{handle}  {j['datei']}  -> media {mid}")
             try:
                 fid = publish_fb_reel(info["page_id"], info["page_token"], j["url"], j["caption"])
@@ -168,6 +183,10 @@ def run(n, dry, accts):
                 print(f"[WARN-FB] @{handle}  {j['datei']}: {e}")
             state.setdefault(handle, []).append(j["datei"])
             save_state(state)
+    if failures:
+        # Nach dem Speichern: der Workflow committet den State trotzdem
+        # (Persist state laeuft mit if: always()).
+        sys.exit(f"IG fehlgeschlagen bei: {', '.join(sorted(set(failures)))}")
 
 
 def main():

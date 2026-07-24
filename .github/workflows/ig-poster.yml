@@ -29,6 +29,9 @@ jobs:
           META_TOKEN: ${{ secrets.META_TOKEN }}
         run: python3 automation/ig_publisher.py --run --n 1
       - name: Persist state
+        # always(): ein Teilerfolg (Konto A gepostet, Konto B gescheitert) muss
+        # trotzdem committet werden, sonst wird A beim naechsten Lauf doppelt gepostet.
+        if: always()
         run: |
           git config user.name "ig-poster-bot"
           git config user.email "ig-poster-bot@users.noreply.github.com"
